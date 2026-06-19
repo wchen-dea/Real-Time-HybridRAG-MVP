@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hybridrag-mcp
+  namespace: hybridrag
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: hybridrag-mcp}
+  template:
+    metadata:
+      labels: {app: hybridrag-mcp}
+    spec:
+      serviceAccountName: hybridrag-mcp-sa
+      containers:
+        - name: hybridrag-mcp
+          image: <ECR_OR_NEXUS_REPO>/real-time-hybridrag-mvp:<TAG>
+          ports: [{containerPort: 8088}]
+          envFrom:
+            - secretRef: {name: hybridrag-mcp-secrets}
+            - configMapRef: {name: hybridrag-mcp-config}
+          resources:
+            requests: {cpu: "500m", memory: "1Gi"}
+            limits: {cpu: "2", memory: "4Gi"}
+          readinessProbe:
+            httpGet: {path: /health, port: 8088}
+          livenessProbe:
+            httpGet: {path: /health, port: 8088}

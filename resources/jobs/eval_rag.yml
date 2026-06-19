@@ -1,0 +1,8 @@
+resources:
+  jobs:
+    eval_rag_job:
+      name: real-time-hybridrag-eval_rag
+      tasks:
+        - task_key: eval_rag
+          spark_python_task:
+            python_file: ../src/dataops_graphrag_mcp/app/cli.py

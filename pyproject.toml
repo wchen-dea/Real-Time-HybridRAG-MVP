@@ -1,0 +1,30 @@
+[project]
+name = "real-time-hybridrag-mvp"
+version = "0.1.0"
+description = "MVP MCP server with LangGraph orchestration, Anthropic Claude, Databricks AI Search VectorRAG and Neo4j GraphRAG"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.2.1",
+  "python-dotenv>=1.0.1",
+  "fastapi>=0.111.0",
+  "uvicorn>=0.30.0",
+  "httpx>=0.27.0",
+  "neo4j>=5.20.0",
+  "langgraph>=1.2.6",
+  "langchain-core>=0.3.0",
+  "langchain-anthropic>=0.3.0",
+  "mcp>=1.6.0",
+  "langchain-mcp-adapters>=0.1.0",
+  "databricks-ai-search>=0.1.0",
+  "databricks-sdk>=0.30.0",
+  "databricks-sql-connector>=3.1.0",
+  "pandas>=2.2.0",
+  "pyyaml>=6.0.1"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2.0", "ruff>=0.5.0", "mypy>=1.10.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

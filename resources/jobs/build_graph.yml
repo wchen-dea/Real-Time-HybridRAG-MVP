@@ -1,0 +1,8 @@
+resources:
+  jobs:
+    build_graph_job:
+      name: real-time-hybridrag-build_graph
+      tasks:
+        - task_key: build_graph
+          spark_python_task:
+            python_file: ../src/dataops_graphrag_mcp/app/cli.py

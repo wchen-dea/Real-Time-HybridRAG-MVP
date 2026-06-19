@@ -1,0 +1,8 @@
+resources:
+  jobs:
+    deploy_mcp_langgraph_job:
+      name: real-time-hybridrag-deploy_mcp_langgraph
+      tasks:
+        - task_key: deploy_mcp_langgraph
+          spark_python_task:
+            python_file: ../src/dataops_graphrag_mcp/app/cli.py

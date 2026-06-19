@@ -1,0 +1,3 @@
+environment,pipeline,flink_application,kafka_topic,schema_subject,delta_table,snowflake_object,dashboard,owner_team
+prod,ore-wom-pipeline,ode-wom-pipeline-v1-prd,dt.storesalesservice.canonical.workorder.v1.avro.prd,dt.storesalesservice.canonical.workorder-value,dt_prod_silver.operations.workorder,DT_PROD_ANALYTICS.WORKORDER,WOM Operations Dashboard,Data Platform Engineering
+prod,ore-invoice-pipeline,ode-invoice-pipeline-v1-prd,dt.invoice.canonical.invoice.v1.avro.prd,dt.invoice.canonical.invoice-value,dt_prod_gold.finance.fct_invoice,DT_PROD_ANALYTICS.FCT_INVOICE,Invoice Analytics Dashboard,Analytics Engineering

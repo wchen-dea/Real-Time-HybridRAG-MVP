@@ -1,0 +1,8 @@
+resources:
+  jobs:
+    build_vector_index_job:
+      name: real-time-hybridrag-build_vector_index
+      tasks:
+        - task_key: build_vector_index
+          spark_python_task:
+            python_file: ../src/dataops_graphrag_mcp/app/cli.py

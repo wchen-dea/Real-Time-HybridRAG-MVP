@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS ai_context.graph_edges (edge_id STRING, source_node_id STRING, relationship_type STRING, target_node_id STRING, confidence DOUBLE, source_system STRING, updated_at TIMESTAMP);

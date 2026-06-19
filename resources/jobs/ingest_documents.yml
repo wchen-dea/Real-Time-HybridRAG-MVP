@@ -1,0 +1,8 @@
+resources:
+  jobs:
+    ingest_documents_job:
+      name: real-time-hybridrag-ingest_documents
+      tasks:
+        - task_key: ingest_documents
+          spark_python_task:
+            python_file: ../src/dataops_graphrag_mcp/app/cli.py
