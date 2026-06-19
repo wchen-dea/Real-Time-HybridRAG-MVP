@@ -53,3 +53,7 @@ logs/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Generated connector configs and local connector plugin jars
+resources/connectors/generated/
+resources/connectors/plugins/

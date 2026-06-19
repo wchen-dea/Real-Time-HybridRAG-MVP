@@ -1,0 +1,25 @@
+{
+  "name": "hybridrag-vector-sink",
+  "config": {
+    "connector.class": "io.confluent.connect.jdbc.JdbcSinkConnector",
+    "tasks.max": "2",
+    "topics": "${KAFKA_ENRICHED_VECTOR_TOPIC}",
+    "connection.url": "jdbc:databricks://${DATABRICKS_CONNECT_HOST}:443/default;transportMode=http;ssl=1;httpPath=${DATABRICKS_SQL_HTTP_PATH};AuthMech=3;UID=token;PWD=${DATABRICKS_TOKEN}",
+    "dialect.name": "GenericDatabaseDialect",
+    "auto.create": "false",
+    "auto.evolve": "false",
+    "insert.mode": "upsert",
+    "pk.mode": "record_value",
+    "pk.fields": "chunk_id",
+    "table.name.format": "${AI_SEARCH_SOURCE_TABLE}",
+    "delete.enabled": "false",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "errors.tolerance": "all",
+    "errors.deadletterqueue.topic.name": "hybridrag.dlq.vector-sink",
+    "errors.deadletterqueue.context.headers.enable": "true",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true"
+  }
+}

@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     databricks_sql_warehouse_id: str = Field(
         default="", alias="DATABRICKS_SQL_WAREHOUSE_ID"
     )
+    databricks_sql_http_path: str = Field(default="", alias="DATABRICKS_SQL_HTTP_PATH")
     vector_index_name: str = Field(
         default="ai_context.document_chunks_index", alias="VECTOR_INDEX_NAME"
     )
@@ -42,6 +43,30 @@ class Settings(BaseSettings):
     )
     mcp_server_host: str = Field(default="0.0.0.0", alias="MCP_SERVER_HOST")
     mcp_server_port: int = Field(default=8088, alias="MCP_SERVER_PORT")
+    kafka_bootstrap_servers: str = Field(
+        default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS"
+    )
+    kafka_raw_topic: str = Field(
+        default="hybridrag.raw.events", alias="KAFKA_RAW_TOPIC"
+    )
+    kafka_enriched_vector_topic: str = Field(
+        default="hybridrag.enriched.vector", alias="KAFKA_ENRICHED_VECTOR_TOPIC"
+    )
+    kafka_enriched_graph_topic: str = Field(
+        default="hybridrag.enriched.graph", alias="KAFKA_ENRICHED_GRAPH_TOPIC"
+    )
+    kafka_security_protocol: str = Field(
+        default="PLAINTEXT", alias="KAFKA_SECURITY_PROTOCOL"
+    )
+    kafka_sasl_mechanism: str = Field(default="PLAIN", alias="KAFKA_SASL_MECHANISM")
+    kafka_sasl_username: str = Field(default="", alias="KAFKA_SASL_USERNAME")
+    kafka_sasl_password: str = Field(default="", alias="KAFKA_SASL_PASSWORD")
+    kafka_producer_client_id: str = Field(
+        default="hybridrag-event-producer", alias="KAFKA_PRODUCER_CLIENT_ID"
+    )
+    kafka_produce_interval_seconds: float = Field(
+        default=1.0, alias="KAFKA_PRODUCE_INTERVAL_SECONDS"
+    )
 
     class Config:
         env_file = ".env"

@@ -1,0 +1,22 @@
+{
+  "name": "hybridrag-graph-sink",
+  "config": {
+    "connector.class": "streams.kafka.connect.sink.Neo4jConnector",
+    "tasks.max": "2",
+    "topics": "${KAFKA_ENRICHED_GRAPH_TOPIC}",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "neo4j.server.uri": "${NEO4J_URI}",
+    "neo4j.authentication.type": "BASIC",
+    "neo4j.authentication.basic.username": "${NEO4J_USER}",
+    "neo4j.authentication.basic.password": "${NEO4J_PASSWORD}",
+    "neo4j.database": "${NEO4J_DATABASE}",
+    "neo4j.topic.cypher.${KAFKA_ENRICHED_GRAPH_TOPIC}": "MERGE (p:Pipeline {name: event.pipeline}) SET p.environment = event.environment MERGE (app:FlinkApplication {name: event.flink_application}) SET app.environment = event.environment MERGE (topic:KafkaTopic {name: event.kafka_topic}) SET topic.environment = event.environment MERGE (schema:SchemaSubject {name: event.schema_subject}) SET schema.environment = event.environment MERGE (dt:DeltaTable {name: event.delta_table}) SET dt.environment = event.environment MERGE (sf:SnowflakeObject {name: event.snowflake_object}) SET sf.environment = event.environment MERGE (dash:Dashboard {name: event.dashboard}) SET dash.environment = event.environment MERGE (team:OwnerTeam {name: event.owner_team}) MERGE (team)-[:OWNS]->(p) MERGE (p)-[:RUNS_AS]->(app) MERGE (app)-[:CONSUMES_FROM]->(topic) MERGE (topic)-[:USES_SCHEMA]->(schema) MERGE (app)-[:PRODUCES]->(dt) MERGE (dt)-[:EXPORTED_TO]->(sf) MERGE (dash)-[:READS_FROM]->(sf)",
+    "errors.tolerance": "all",
+    "errors.deadletterqueue.topic.name": "hybridrag.dlq.graph-sink",
+    "errors.deadletterqueue.context.headers.enable": "true",
+    "errors.log.enable": "true",
+    "errors.log.include.messages": "true"
+  }
+}
