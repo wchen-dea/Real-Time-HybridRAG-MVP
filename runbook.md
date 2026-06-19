@@ -5,7 +5,6 @@
 1. README.md
 2. docs/production_deployment_aws_eks.md
 3. docs/cost_model.md
-4. docs/all_3_additions_summary.md
 
 ## Purpose
 

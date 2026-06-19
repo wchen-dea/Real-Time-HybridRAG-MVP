@@ -184,4 +184,3 @@ For a production-oriented deployment introduction and run sequence, see:
 
 1. runbook.md
 2. docs/cost_model.md
-3. docs/all_3_additions_summary.md
