@@ -13,6 +13,7 @@ This is a directional cost model for planning and operational control, not a str
 5. Graph database compute and storage (Neo4j or Neptune).
 6. Databricks SQL warehouse runtime.
 7. Observability ingestion and retention, including LangSmith traces.
+8. Guardrail LLM calls (minor; hard-block patterns skip the LLM entirely).
 
 ## Cost Control Levers
 
@@ -22,6 +23,8 @@ This is a directional cost model for planning and operational control, not a str
 4. Right-size or remove unused endpoints and idle capacity.
 5. Add quality-gate metrics to prevent low-value token usage.
 6. Keep LangSmith tracing enabled in production-critical paths and sample low-value traffic where needed.
+7. Tune the TTL response cache (`_CACHE_TTL_SECONDS` in `supervisor.py`) — longer TTL reduces repeated LLM and retrieval costs for frequently asked questions.
+8. Route simple classification or routing calls to smaller, cheaper models; reserve large models for answer generation.
 
 ## Suggested Monthly Review Checklist
 

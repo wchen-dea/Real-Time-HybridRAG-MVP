@@ -83,7 +83,8 @@ This deployment guide operationalizes the stack in [README Tech Stack](../README
 1. Runtime: Python service container + Java-based Flink UDF JAR.
 2. Platform: Docker + Kubernetes on AWS EKS with IRSA.
 3. Data and retrieval dependencies: Databricks AI Search/SQL and Neo4j/Neptune.
-4. Observability: LangSmith tracing plus centralized logs/metrics.
+4. Observability: LangSmith tracing, structured JSON logs, and correlation IDs.
+5. Security and resilience: input guardrails, API rate limiting (60 req/60 s per IP), TTL response cache.
 
 ## Introduction: Running Production Deployment on AWS EKS
 

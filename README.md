@@ -8,6 +8,10 @@ Production-oriented Data and AI Minimum Viable Product (MVP) combining VectorRAG
 - LangGraph orchestration for routing and answer generation.
 - MCP tool interface for agent workflows.
 - Deployment assets for AWS EKS.
+- Graceful degradation on retrieval or LLM failure.
+- Input guardrails, API rate limiting, and per-request correlation IDs.
+- TTL-based response caching for repeated queries.
+- Multi-metric evaluation: keyword match, retrieval recall, factuality, and composite scores.
 
 ## Tech Stack
 
@@ -20,6 +24,7 @@ Production-oriented Data and AI Minimum Viable Product (MVP) combining VectorRAG
 | Streaming | Confluent Kafka, Flink SQL, Kafka Connect |
 | Packaging and Build | pip/uv, Maven (flink-embedding-udf) |
 | Infrastructure | Docker, Kubernetes, AWS EKS, IRSA |
+| Security and Resilience | Input guardrails, rate limiting, TTL cache, correlation IDs |
 
 ## End-to-End Workflow
 
@@ -81,7 +86,7 @@ LANGSMITH_TAGS=hybridrag,mvp,monitoring
 
 With tracing enabled, API, CLI, and MCP calls are monitored through `DataOpsLangGraphSupervisor.invoke`.
 
-Run a traced evaluation suite:
+Run a traced multi-metric evaluation suite (keyword match, retrieval recall, factuality, composite):
 
 ```python
 from dataops_graphrag_mcp.evaluation import run_evaluation_suite
@@ -90,6 +95,7 @@ cases = [
     {
         "question": "Find the runbook for Kafka lag.",
         "expected_keywords": ["runbook", "kafka"],
+        "expected_source_ids": ["chunk-001"],
     },
     {
         "question": "What lineage is impacted by table X?",
@@ -98,7 +104,9 @@ cases = [
 ]
 
 summary = run_evaluation_suite(cases)
-print(summary["average_score"])
+print(summary["average_composite_score"])   # weighted: keyword 40%, recall 30%, factuality 30%
+print(summary["average_retrieval_recall"])
+print(summary["average_factuality_score"])
 ```
 
 ## Real-Time Event Pipeline

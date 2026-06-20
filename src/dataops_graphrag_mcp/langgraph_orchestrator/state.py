@@ -17,6 +17,7 @@ class DataOpsAgentState(TypedDict, total=False):
     graph_path: list
     final_answer: str
     confidence: float
+    prompt_version: str
     recommended_next_actions: list[str]
     missing_evidence_warnings: list[str]
     quality_gate_passed: bool

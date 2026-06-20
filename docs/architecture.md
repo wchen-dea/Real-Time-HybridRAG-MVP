@@ -85,29 +85,34 @@ flowchart TD
 sequenceDiagram
     participant C as Client/Agent
     participant M as MCP Server
+    participant G as Guardrail
     participant S as Supervisor
     participant L as LangGraph
     participant V as Databricks AI Search
-    participant G as Neo4j
+    participant N as Neo4j
     participant A as Anthropic
 
-    C->>M: ask(question)
+    C->>M: ask(question) + X-Correlation-ID
+    M->>G: check_input(question)
+    G-->>M: safe=true
     M->>S: invoke(question, user_id, env)
+    Note over S: cache lookup — miss
     S->>L: graph.invoke(state)
     L->>L: classify_query + entity_extraction
     par Hybrid Retrieval
       L->>V: vector_retrieval(question)
-      V-->>L: vector_results
-      L->>G: graph_retrieval(entity)
-      G-->>L: graph_results
+      V-->>L: vector_results [graceful fallback on error]
+      L->>N: graph_retrieval(entity)
+      N-->>L: graph_results [graceful fallback on error]
     end
     L->>L: evidence_merge
-    L->>A: answer_generation(prompt + evidence)
-    A-->>L: answer
+    L->>A: answer_generation(versioned prompt + evidence)
+    A-->>L: answer [raw chunks returned on LLM failure]
     L->>L: quality_gate
     L-->>S: final state
-    S-->>M: structured response
-    M-->>C: answer + evidence + confidence
+    Note over S: cache store (TTL 5 min)
+    S-->>M: response + prompt_version + cache_hit=false
+    M-->>C: answer + evidence + confidence + X-Correlation-ID
 ```
 
 ## Runtime Components
@@ -122,8 +127,11 @@ sequenceDiagram
 - Retrieval adapters:
   - src/dataops_graphrag_mcp/vectorrag/
   - src/dataops_graphrag_mcp/graphrag/
+- Security and resilience:
+  - src/dataops_graphrag_mcp/llm/guardrails.py
+  - src/dataops_graphrag_mcp/llm/prompts.py (versioned at `PROMPT_VERSION`)
 - API and CLI entrypoints:
-  - src/dataops_graphrag_mcp/app/api.py
+  - src/dataops_graphrag_mcp/app/api.py (rate limiting, correlation ID middleware)
   - src/dataops_graphrag_mcp/app/cli.py
 
 ## Tech Stack Alignment
@@ -138,16 +146,19 @@ This architecture implements the stack listed in [README Tech Stack](../README.m
 
 ## Request Lifecycle
 
-1. A question arrives from MCP, API, or CLI.
-2. Supervisor builds the initial graph state with user and environment metadata.
-3. Query router selects the retrieval mode.
-4. Graph executes retrieval nodes:
-   - Vector retrieval from Databricks AI Search index.
-   - Graph retrieval from Neo4j lineage graph when an entity is identified.
-5. Evidence merger combines vector chunks and graph relationships.
-6. Answer generation produces the final response.
-7. Quality gate marks whether evidence grounding is present.
-8. Response is returned as a normalized contract.
+1. Request arrives at API (`/ask`), CLI, or MCP tool.
+2. API middleware assigns a `X-Correlation-ID` and enforces the per-IP rate limit.
+3. Input guardrail (`llm/guardrails.py`) screens the question; blocked requests return HTTP 400.
+4. Supervisor checks the TTL response cache — a hit returns immediately with `"cache_hit": true`.
+5. Supervisor builds the initial graph state with user, environment, and LangSmith metadata.
+6. Query router classifies the question and selects the retrieval mode.
+7. LangGraph executes retrieval nodes with graceful degradation:
+   - Vector retrieval from Databricks AI Search (falls back to empty results with a warning on failure).
+   - Graph retrieval from Neo4j when an entity is identified (falls back to vector-only on failure).
+8. Evidence merger combines vector chunks and graph relationships.
+9. Answer generation calls Anthropic Claude using the versioned prompt (`PROMPT_VERSION`); on LLM failure, returns raw retrieved chunks as fallback.
+10. Quality gate marks evidence grounding.
+11. Response is cached and returned with `prompt_version`, `cache_hit`, and `missing_evidence_warnings`.
 
 ## Data Plane: Streaming Updates
 
@@ -184,22 +195,25 @@ See docs/deployment.md for deployment sequence.
 
 ## Monitoring and Evaluation
 
-- LangSmith tracing is configured at startup in `DataOpsLangGraphSupervisor.__init__` via `configure_langsmith()`.
-- Each `invoke` call is decorated with `@traceable` and tagged with `app_env` and `request_env`.
-- Trace settings are controlled by:
-  - LANGSMITH_TRACING
-  - LANGSMITH_API_KEY
-  - LANGSMITH_PROJECT
-  - LANGSMITH_ENDPOINT
-  - LANGSMITH_TAGS
-- Evaluation helpers are available at src/dataops_graphrag_mcp/evaluation/langsmith_eval.py.
+- LangSmith tracing configured in `DataOpsLangGraphSupervisor.__init__` via `configure_langsmith()`.
+- Each `invoke` call is decorated with `@traceable`; tagged with `app_env`, `request_env`, and `prompt_version`.
+- Structured JSON logging with per-request correlation ID via `common/logging.py`.
+- Trace settings: `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_ENDPOINT`, `LANGSMITH_TAGS`.
+- Evaluation helpers at src/dataops_graphrag_mcp/evaluation/langsmith_eval.py:
+  - `keyword_score` — fraction of expected keywords found in the answer.
+  - `retrieval_recall` — fraction of expected source IDs in top-k results.
+  - `factuality_score` — keyword-overlap proxy for answer grounding in evidence.
+  - `composite_score` — weighted aggregate (keyword 40%, recall 30%, factuality 30%).
 
 ## Security and Operations Notes
 
+- Input guardrail (`llm/guardrails.py`) screens every question before the pipeline runs; hard-blocks prompt injection patterns without an LLM call.
+- API rate limiter: 60 requests per 60 s per IP in `app/api.py`; replace with Redis-backed middleware for multi-replica deployments.
+- Every API response carries an `X-Correlation-ID` header traceable through JSON logs.
+- All prompts are versioned (`PROMPT_VERSION` in `llm/prompts.py`); bump on any template change.
 - Store secrets outside source control and inject at runtime.
 - Restrict egress to Databricks, model provider, and graph backend endpoints.
 - Use workload-level health checks and rolling updates.
-- Monitor retrieval quality and answer confidence over time.
 
 ## Related Docs
 

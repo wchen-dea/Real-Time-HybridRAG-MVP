@@ -29,6 +29,8 @@ Main components:
 - LangGraph orchestration in src/dataops_graphrag_mcp/langgraph_orchestrator/
 - Vector retrieval in src/dataops_graphrag_mcp/vectorrag/
 - Graph retrieval in src/dataops_graphrag_mcp/graphrag/
+- Input guardrails in src/dataops_graphrag_mcp/llm/guardrails.py
+- Response caching and structured logging in supervisor and common/logging.py
 - Deployment manifests in deploy/k8s/
 - Databricks jobs in resources/jobs/
 
@@ -208,6 +210,8 @@ Application validation:
 1. Confirm service responds on health endpoint.
 2. Run representative HybridRAG queries from your team test set.
 3. Verify both vector and graph evidence are returned.
+4. Confirm `X-Correlation-ID` header is present in all `/ask` responses.
+5. Confirm guardrail blocks an obvious injection string (e.g. `"ignore previous instructions"`).
 
 ## Incident Response
 
@@ -231,18 +235,26 @@ Application validation:
    - Rotate secret in AWS Secrets Manager.
    - Restart deployment if env vars are loaded at startup.
 2. Databricks retrieval failures:
+   - Pipeline degrades gracefully to empty vector results with a `missing_evidence_warnings` entry.
    - Validate endpoint/index names and workspace permissions.
-   - Validate JDBC sink connection settings and credentials.
-3. Kafka consumption failures:
+3. Graph backend connectivity issues:
+   - Pipeline degrades to vector-only; graph warnings appear in the response.
+   - Verify network ACL/security group/route rules.
+4. LLM (Anthropic) failures:
+   - API returns raw retrieved chunk text as fallback answer.
+   - Check API key, quota, and provider status.
+5. Kafka consumption failures:
    - Verify bootstrap servers, topic, SASL settings, and ACLs.
    - Check poison-pill events in logs (schema mismatch or invalid JSON).
-4. Kafka Connect sink failures:
+6. Kafka Connect sink failures:
    - Check connector status, task errors, and DLQ topic growth.
    - Validate sink-specific classes and connector plugin installation.
-5. Graph backend connectivity issues:
-   - Verify network ACL/security group/route rules.
-6. Model provider failures:
-   - Check API key, quota, and provider status.
+7. Guardrail false positives (legitimate queries blocked at HTTP 400):
+   - Inspect `X-Correlation-ID` in the response and find the corresponding log entry.
+   - Adjust `_HARD_BLOCK_TERMS` in `llm/guardrails.py` if a pattern is too broad.
+8. Rate limit rejections (HTTP 429):
+   - Default limit is 60 requests/60 s per IP.
+   - For multi-replica deployments, replace the in-process limiter with Redis-backed middleware.
 
 ## Rollback Procedure
 
@@ -277,11 +289,12 @@ After deploy:
 
 ## Observability Recommendations
 
-1. Enable LangSmith tracing (`LANGSMITH_TRACING=true`) for end-to-end supervisor trace capture.
-2. Centralize application logs with request correlation IDs.
-3. Track latency and error rate by retrieval path (vector vs graph).
-4. Alert on pod restarts, 5xx rates, and dependency timeouts.
-5. Maintain dashboards for throughput, latency, and dependency health.
+1. Enable LangSmith tracing (`LANGSMITH_TRACING=true`) for end-to-end supervisor trace capture including `prompt_version`.
+2. All log lines are structured JSON with `correlation_id`; aggregate and search them by `correlation_id` to trace a single request.
+3. Expose `X-Correlation-ID` in your load balancer and client-side logs to correlate frontend and backend traces.
+4. Track latency and error rate by retrieval path (vector vs graph) and by `cache_hit` status.
+5. Alert on pod restarts, 5xx rates, 429 rate-limit surges, and guardrail block spikes.
+6. Maintain dashboards for throughput, latency, retrieval recall, and composite eval score trends.
 
 ## Ownership
 
