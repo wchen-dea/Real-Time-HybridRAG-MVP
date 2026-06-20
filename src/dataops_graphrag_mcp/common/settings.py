@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     )
     anthropic_max_tokens: int = Field(default=2048, alias="ANTHROPIC_MAX_TOKENS")
     anthropic_temperature: float = Field(default=0.1, alias="ANTHROPIC_TEMPERATURE")
+    langsmith_tracing: bool = Field(default=False, alias="LANGSMITH_TRACING")
+    langsmith_api_key: str = Field(default="", alias="LANGSMITH_API_KEY")
+    langsmith_endpoint: str = Field(
+        default="https://api.smith.langchain.com", alias="LANGSMITH_ENDPOINT"
+    )
+    langsmith_project: str = Field(
+        default="real-time-hybridrag-mvp", alias="LANGSMITH_PROJECT"
+    )
+    langsmith_tags: str = Field(default="hybridrag,mvp", alias="LANGSMITH_TAGS")
     mcp_server_name: str = Field(
         default="dataops-graphrag-mcp", alias="MCP_SERVER_NAME"
     )

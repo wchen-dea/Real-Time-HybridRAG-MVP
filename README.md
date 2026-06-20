@@ -1,15 +1,27 @@
-# Real-Time HybridRAG MVP
+# Real-Time HybridRAG Minimum Viable Product (MVP)
 
-Full sample Data & AI MVP using **VectorRAG + GraphRAG + LangGraph + MCP Server + Anthropic Claude + Databricks AI Search + Neo4j + EKS deployment skeleton**.
+Production-oriented Data and AI Minimum Viable Product (MVP) combining VectorRAG, GraphRAG, LangGraph orchestration, MCP tool serving, Databricks AI Search, and Neo4j.
 
-## What this repository provides
+## What This Repository Provides
 
-1. Hybrid retrieval across vector and graph context.
-2. LangGraph-based orchestration for tool routing and answer generation.
-3. MCP server interface for agent-driven workflows.
-4. Deployment assets for production-style operation on AWS EKS.
+- Hybrid retrieval across vector and graph context.
+- LangGraph orchestration for routing and answer generation.
+- MCP tool interface for agent workflows.
+- Deployment assets for AWS EKS.
 
-## Main workflow
+## Tech Stack
+
+| Layer | Technologies |
+| --- | --- |
+| Language and Runtime | Python 3.11, Java 17 (Flink UDF) |
+| Application Framework | FastAPI, LangGraph, MCP |
+| LLM and Evaluation | Anthropic Claude, LangSmith |
+| Retrieval and Data | Databricks AI Search, Databricks SQL, Neo4j |
+| Streaming | Confluent Kafka, Flink SQL, Kafka Connect |
+| Packaging and Build | pip/uv, Maven (flink-embedding-udf) |
+| Infrastructure | Docker, Kubernetes, AWS EKS, IRSA |
+
+## End-to-End Workflow
 
 ```text
 MCP Client / Agent
@@ -19,26 +31,77 @@ MCP Client / Agent
   -> Anthropic Claude answer generation + quality gate
 ```
 
-## Local setup
+## Documentation Map
+
+- [Architecture](docs/architecture.md)
+- [Runbook](docs/runbook.md)
+- [Production Deployment on AWS EKS](docs/deployment.md)
+- [Cost Model](docs/cost_model.md)
+- [Connector Guide](resources/connectors/README.md)
+
+## Local Setup
 
 ```bash
 cp .env.example .env
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+```
+
+Run the MCP tool service:
+
+```bash
 python -m dataops_graphrag_mcp.mcp_server.server
+```
+
+Optional API and CLI entrypoints:
+
+```bash
+uvicorn dataops_graphrag_mcp.app.api:app --reload
 python -m dataops_graphrag_mcp.app.cli
 ```
 
-## Optional bootstrap commands
+## Data Bootstrap Commands
 
 ```bash
 python -m dataops_graphrag_mcp.vectorrag.bootstrap_ai_search
 python -m dataops_graphrag_mcp.graphrag.populate_from_metadata
-uvicorn dataops_graphrag_mcp.app.api:app --reload
 ```
 
-## Real-time event pipeline (Confluent Kafka + Flink + Kafka Connect)
+## LangSmith Monitoring and Evaluation
+
+Set the following in `.env`:
+
+```bash
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=<your-langsmith-api-key>
+LANGSMITH_PROJECT=real-time-hybridrag-mvp
+LANGSMITH_TAGS=hybridrag,mvp,monitoring
+```
+
+With tracing enabled, API, CLI, and MCP calls are monitored through `DataOpsLangGraphSupervisor.invoke`.
+
+Run a traced evaluation suite:
+
+```python
+from dataops_graphrag_mcp.evaluation import run_evaluation_suite
+
+cases = [
+    {
+        "question": "Find the runbook for Kafka lag.",
+        "expected_keywords": ["runbook", "kafka"],
+    },
+    {
+        "question": "What lineage is impacted by table X?",
+        "expected_keywords": ["lineage"],
+    },
+]
+
+summary = run_evaluation_suite(cases)
+print(summary["average_score"])
+```
+
+## Real-Time Event Pipeline
 
 Topology:
 
@@ -48,14 +111,14 @@ Flink SQL enrich/format -> KAFKA_ENRICHED_VECTOR_TOPIC + KAFKA_ENRICHED_GRAPH_TO
 Kafka Connect sinks -> Databricks document_chunks + Neo4j graph
 ```
 
-Local stack bootstrap:
+Start local streaming stack:
 
 ```bash
 make streaming-up
 make streaming-topics
 ```
 
-### 1) Produce ever-changing source events
+Produce source events:
 
 ```bash
 python -m dataops_graphrag_mcp.ingestion.realtime_event_producer
@@ -67,37 +130,26 @@ Equivalent Make target:
 make realtime-producer
 ```
 
-### 2) Run Flink transform job
+Run Flink transform job (requires `flink-embedding-udf.jar` on the Flink cluster classpath — see [flink-embedding-udf/](flink-embedding-udf/)):
 
-Use:
+- [Flink job SQL](resources/jobs/flink_realtime_hybrid_updates.sql)
 
-1. resources/jobs/flink_realtime_hybrid_updates.sql
+Deploy Kafka Connect sinks:
 
-This consumes `KAFKA_RAW_TOPIC` and publishes two enriched topics:
-
-1. `KAFKA_ENRICHED_VECTOR_TOPIC`
-2. `KAFKA_ENRICHED_GRAPH_TOPIC`
-
-### 3) Deploy Kafka Connect sink connectors
-
-Connector templates:
-
-1. resources/connectors/templates/vector_sink_databricks_jdbc.tmpl.json
-2. resources/connectors/templates/graph_sink_neo4j.tmpl.json
-
-One command (render templates + register connectors):
+- [Vector sink template](resources/connectors/templates/vector_sink_databricks_jdbc.tmpl.json)
+- [Graph sink template](resources/connectors/templates/graph_sink_neo4j.tmpl.json)
 
 ```bash
 make connectors-deploy
 ```
 
-Render only:
+Render connector files only:
 
 ```bash
 make connectors-render
 ```
 
-Register connectors (example):
+Manual registration example:
 
 ```bash
 curl -X POST http://localhost:8083/connectors \
@@ -109,7 +161,9 @@ curl -X POST http://localhost:8083/connectors \
   --data @resources/connectors/generated/graph_sink_neo4j.json
 ```
 
-Raw event shape (producer output):
+## Sample Event Shapes
+
+Raw producer event:
 
 ```json
 {
@@ -135,7 +189,7 @@ Raw event shape (producer output):
 }
 ```
 
-Flink-enriched vector topic event shape:
+Flink-enriched vector event (includes pre-computed embedding vector):
 
 ```json
 {
@@ -148,6 +202,7 @@ Flink-enriched vector topic event shape:
   "source_uri": "kafka://ops.lineage/chunk-001",
   "title": "Kafka Runbook",
   "chunk_text": "Kafka lag handling runbook",
+  "embedding": [0.021, -0.043, 0.117, "..."],
   "domain": "operations",
   "system_name": "kafka",
   "environment": "dev",
@@ -155,7 +210,7 @@ Flink-enriched vector topic event shape:
 }
 ```
 
-Flink-enriched graph topic event shape:
+Flink-enriched graph event:
 
 ```json
 {
@@ -173,14 +228,3 @@ Flink-enriched graph topic event shape:
   "environment": "dev"
 }
 ```
-
-## Production deployment on AWS EKS
-
-For a production-oriented deployment introduction and run sequence, see:
-
-1. docs/production_deployment_aws_eks.md
-
-## Operations and planning docs
-
-1. runbook.md
-2. docs/cost_model.md

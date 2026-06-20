@@ -2,7 +2,7 @@
 
 This folder contains connector templates for sinking Flink-enriched topics into vector and graph destinations.
 
-## One-command deployment
+## One-Command Deployment
 
 Render templates and register connectors:
 
@@ -16,19 +16,19 @@ Render only:
 make connectors-render
 ```
 
-## Connectors
+## Connector Templates
 
-1. templates/vector_sink_databricks_jdbc.tmpl.json
-2. templates/graph_sink_neo4j.tmpl.json
+- [Vector sink template](templates/vector_sink_databricks_jdbc.tmpl.json)
+- [Graph sink template](templates/graph_sink_neo4j.tmpl.json)
 
 Rendered output directory:
 
-1. generated/
+- generated/
 
-## Topics expected
+## Expected Topics
 
-1. hybridrag.enriched.vector
-2. hybridrag.enriched.graph
+1. `hybridrag.enriched.vector` — chunk records including `embedding ARRAY<FLOAT>` pre-computed by Flink
+2. `hybridrag.enriched.graph` — lineage relationship records
 
 ## Register connectors
 
@@ -49,3 +49,9 @@ The script upserts connectors (create if missing, update if existing).
 make streaming-up
 make streaming-topics
 ```
+
+Related docs:
+
+- [Tech Stack](../../README.md#tech-stack)
+- [Architecture](../../docs/architecture.md)
+- [Runbook](../../docs/runbook.md)

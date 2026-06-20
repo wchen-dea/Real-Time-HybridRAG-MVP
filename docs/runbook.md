@@ -1,14 +1,16 @@
-# Runbook: Real-Time HybridRAG MVP
+# Runbook: Real-Time HybridRAG Minimum Viable Product (MVP)
 
-## Quick links
+## Quick Links
 
-1. README.md
-2. docs/production_deployment_aws_eks.md
-3. docs/cost_model.md
+- [README](../README.md)
+- [Tech Stack](../README.md#tech-stack)
+- [Architecture](architecture.md)
+- [Production Deployment](deployment.md)
+- [Cost Model](cost_model.md)
 
 ## Purpose
 
-This runbook defines standard operating procedures for running, deploying, and troubleshooting the Real-Time HybridRAG MVP service.
+This runbook defines standard operating procedures for running, deploying, and troubleshooting the Real-Time HybridRAG Minimum Viable Product (MVP) service.
 
 ## Scope
 
@@ -23,18 +25,18 @@ Applies to:
 
 Main components:
 
-1. MCP server entrypoint in src/dataops_graphrag_mcp/mcp_server/server.py
-2. LangGraph orchestration in src/dataops_graphrag_mcp/langgraph_orchestrator/
-3. Vector retrieval in src/dataops_graphrag_mcp/vectorrag/
-4. Graph retrieval in src/dataops_graphrag_mcp/graphrag/
-5. Deployment manifests in deploy/k8s/
-6. Databricks jobs in resources/jobs/
+- MCP server entrypoint in src/dataops_graphrag_mcp/mcp_server/server.py
+- LangGraph orchestration in src/dataops_graphrag_mcp/langgraph_orchestrator/
+- Vector retrieval in src/dataops_graphrag_mcp/vectorrag/
+- Graph retrieval in src/dataops_graphrag_mcp/graphrag/
+- Deployment manifests in deploy/k8s/
+- Databricks jobs in resources/jobs/
 
-## Standard operating rhythm
+## Standard Operating Rhythm
 
 1. Daily: Check service health, error rates, and dependency status.
 2. Weekly: Review deployment drift, unresolved alerts, and recovery posture.
-3. Monthly: Run cost review using docs/cost_model.md and update action items.
+3. Monthly: Run cost review using [Cost Model](cost_model.md) and update action items.
 
 ## Prerequisites
 
@@ -44,7 +46,7 @@ Main components:
    - Databricks workspace and SQL endpoint
    - Anthropic API
    - Neo4j or Neptune
-4. For EKS operations: aws CLI, kubectl, Docker, ECR access
+4. For EKS operations: AWS CLI, kubectl, Docker, ECR access
 
 ## Environment Setup
 
@@ -108,17 +110,17 @@ Graph bootstrap:
 python -m dataops_graphrag_mcp.graphrag.populate_from_metadata
 ```
 
-Databricks job definitions are in:
+Databricks job definitions:
 
-1. resources/jobs/ingest_documents.yml
-2. resources/jobs/build_vector_index.yml
-3. resources/jobs/build_graph.yml
-4. resources/jobs/deploy_mcp_langgraph.yml
+- resources/jobs/ingest_documents.yml
+- resources/jobs/build_vector_index.yml
+- resources/jobs/build_graph.yml
+- resources/jobs/deploy_mcp_langgraph.yml
 
-Kafka Connect templates are in:
+Kafka Connect templates:
 
-1. resources/connectors/templates/vector_sink_databricks_jdbc.tmpl.json
-2. resources/connectors/templates/graph_sink_neo4j.tmpl.json
+- resources/connectors/templates/vector_sink_databricks_jdbc.tmpl.json
+- resources/connectors/templates/graph_sink_neo4j.tmpl.json
 
 ## Real-Time Stream Sync Procedures
 
@@ -126,12 +128,20 @@ Use Confluent Kafka as the event bus, Flink for enrichment, and Kafka Connect si
 
 Reference Flink SQL starter:
 
-1. resources/jobs/flink_realtime_hybrid_updates.sql
+- resources/jobs/flink_realtime_hybrid_updates.sql
+
+The Flink job uses the `generate_embedding` UDF to compute embeddings at stream time.
+Build and deploy the UDF JAR before submitting the job:
+
+```bash
+cd flink-embedding-udf && mvn clean package
+# copy target/flink-embedding-udf.jar to the Flink cluster classpath
+```
 
 Reference connector templates:
 
-1. resources/connectors/templates/vector_sink_databricks_jdbc.tmpl.json
-2. resources/connectors/templates/graph_sink_neo4j.tmpl.json
+- resources/connectors/templates/vector_sink_databricks_jdbc.tmpl.json
+- resources/connectors/templates/graph_sink_neo4j.tmpl.json
 
 Run producer (raw changing events):
 
@@ -156,12 +166,13 @@ Operational checks:
 
 1. Confirm raw topic throughput for `KAFKA_RAW_TOPIC`.
 2. Confirm Flink consumer lag is stable and both enriched topics receive records.
-3. Confirm Kafka Connect vector sink writes to `AI_SEARCH_SOURCE_TABLE`.
-4. Confirm Kafka Connect graph sink writes/upserts lineage in Neo4j.
+3. Confirm embedding field is non-null in `hybridrag.enriched.vector` records (indicates UDF is active).
+4. Confirm Kafka Connect vector sink writes to `AI_SEARCH_SOURCE_TABLE`.
+5. Confirm Kafka Connect graph sink writes/upserts lineage in Neo4j.
 
 ## Production Deployment (AWS EKS)
 
-Reference: docs/production_deployment_aws_eks.md
+Reference: [Production Deployment](deployment.md)
 
 Recommended order:
 
@@ -266,10 +277,11 @@ After deploy:
 
 ## Observability Recommendations
 
-1. Centralize application logs with request correlation IDs.
-2. Track latency and error rate by retrieval path (vector vs graph).
-3. Alert on pod restarts, 5xx rates, and dependency timeouts.
-4. Maintain dashboards for throughput, latency, and dependency health.
+1. Enable LangSmith tracing (`LANGSMITH_TRACING=true`) for end-to-end supervisor trace capture.
+2. Centralize application logs with request correlation IDs.
+3. Track latency and error rate by retrieval path (vector vs graph).
+4. Alert on pod restarts, 5xx rates, and dependency timeouts.
+5. Maintain dashboards for throughput, latency, and dependency health.
 
 ## Ownership
 

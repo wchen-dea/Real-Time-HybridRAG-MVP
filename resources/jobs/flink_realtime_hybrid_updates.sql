@@ -1,7 +1,24 @@
 -- Flink SQL pipeline:
 -- 1) consume changing events from raw Confluent Kafka topic
--- 2) enrich and format records
+-- 2) enrich and format records, including embedding generation via Databricks model serving
 -- 3) publish to two layered topics for dedicated Kafka Connect sinks
+--
+-- Embedding UDF:
+--   generate_embedding(STRING) -> ARRAY<FLOAT>
+--   Calls Databricks model serving endpoint for the configured embedding model.
+--   Implementation: deploy com.dataops.hybridrag.flink.EmbeddingUDF from flink-embedding-udf.jar
+--   on the Flink cluster classpath before submitting this job.
+--
+--   If using Databricks Delta Sync Index (auto-embedding mode), set
+--   EMBEDDING_MODE = 'delegated' and the embedding column will be written as NULL;
+--   Databricks will compute and manage embeddings from chunk_text automatically.
+--   For Direct Access Index or any non-Databricks vector store, keep EMBEDDING_MODE = 'flink'
+--   so embeddings are pre-computed here and carried through the Kafka topic.
+
+CREATE TEMPORARY FUNCTION IF NOT EXISTS generate_embedding
+  AS 'com.dataops.hybridrag.flink.EmbeddingUDF'
+  LANGUAGE JAVA
+  USING JAR 'flink-embedding-udf.jar';
 
 CREATE TABLE source_events (
   event_id STRING,
@@ -43,6 +60,7 @@ CREATE TABLE vector_updates (
   source_uri STRING,
   title STRING,
   chunk_text STRING,
+  embedding ARRAY<FLOAT>,  -- pre-computed by generate_embedding UDF; NULL when using Delta Sync auto-embedding
   domain STRING,
   system_name STRING,
   environment STRING,
@@ -86,7 +104,8 @@ SELECT
   COALESCE(source_name, 'flink_stream') AS source_name,
   source_uri,
   COALESCE(title, '') AS title,
-  chunk_text,
+  COALESCE(chunk_text, '') AS chunk_text,
+  generate_embedding(COALESCE(chunk_text, '')) AS embedding,
   COALESCE(domain, '') AS domain,
   COALESCE(system_name, '') AS system_name,
   COALESCE(environment, 'dev') AS environment,

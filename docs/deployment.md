@@ -1,4 +1,4 @@
-# Production Deployment Architecture: AWS EKS + Databricks + Neo4j/Neptune
+# Deployment: AWS EKS + Databricks + Neo4j/Neptune
 
 ```text
 Client / Copilot / Agent -> private ingress -> EKS service hybridrag-mcp -> LangGraph -> Databricks AI Search + SQL -> Neo4j/Neptune -> Anthropic Claude
@@ -6,11 +6,84 @@ Client / Copilot / Agent -> private ingress -> EKS service hybridrag-mcp -> Lang
 
 Use private subnets, IRSA-backed service account, Secrets Manager for secrets, internal service exposure, and separate bootstrap jobs for AI Search indexing and graph population.
 
-## Related docs
+## Component Diagram: Decontainer
 
-1. README.md
-2. runbook.md
-3. docs/cost_model.md
+```mermaid
+flowchart LR
+   User[Client / Agent]
+   App[Container: hybridrag-mcp\nFastAPI + MCP + LangGraph]
+   KRaw[(Kafka: hybridrag.raw.events)]
+   Flink[Flink SQL Job\nflink_realtime_hybrid_updates.sql]
+   UDF[flink-embedding-udf.jar\ngenerate_embedding UDF]
+   KVec[(Kafka: hybridrag.enriched.vector)]
+   KGra[(Kafka: hybridrag.enriched.graph)]
+   KConn[Kafka Connect\nvector + graph sinks]
+   DBX[(Databricks Delta/AI Search)]
+   Neo[(Neo4j)]
+   Anth[Anthropic]
+
+   User --> App
+   App --> DBX
+   App --> Neo
+   App --> Anth
+
+   KRaw --> Flink
+   UDF --> Flink
+   Flink --> KVec
+   Flink --> KGra
+   KVec --> KConn
+   KGra --> KConn
+   KConn --> DBX
+   KConn --> Neo
+```
+
+## Component Diagram: EKS
+
+```mermaid
+flowchart LR
+   Client[Client or Copilot Agent] --> ALB[Internal Ingress or ALB]
+
+   subgraph AWS_Account
+      subgraph VPC_Private_Subnets
+         ALB --> SVC[Service hybridrag-mcp]
+
+         subgraph EKS_Cluster
+            SA[IRSA ServiceAccount]
+            DEPLOY[Deployment hybridrag-mcp]
+            POD[Pod hybridrag-mcp]
+            CM[ConfigMap]
+            SEC[Secret Refs from AWS Secrets Manager]
+
+            SVC --> POD
+            DEPLOY --> POD
+            SA --> POD
+            CM --> POD
+            SEC --> POD
+         end
+      end
+   end
+
+   POD --> DBX[Databricks AI Search and SQL]
+   POD --> NEO[Neo4j or Neptune]
+   POD --> ANTH[Anthropic]
+   POD --> LS[LangSmith]
+```
+
+## Related Docs
+
+- [Architecture](architecture.md)
+- [README](../README.md)
+- [Runbook](runbook.md)
+- [Cost Model](cost_model.md)
+
+## Platform Stack
+
+This deployment guide operationalizes the stack in [README Tech Stack](../README.md#tech-stack):
+
+1. Runtime: Python service container + Java-based Flink UDF JAR.
+2. Platform: Docker + Kubernetes on AWS EKS with IRSA.
+3. Data and retrieval dependencies: Databricks AI Search/SQL and Neo4j/Neptune.
+4. Observability: LangSmith tracing plus centralized logs/metrics.
 
 ## Introduction: Running Production Deployment on AWS EKS
 
@@ -91,11 +164,22 @@ Then deploy the MCP LangGraph job definition:
 
 For continuous Confluent Kafka/Flink driven updates into vector and graph stores, deploy this stream stack:
 
-1. Producer service using src/dataops_graphrag_mcp/ingestion/realtime_event_producer.py
-2. Flink SQL transform using resources/jobs/flink_realtime_hybrid_updates.sql
-3. Kafka Connect sinks:
+1. Build and deploy the Flink embedding UDF JAR:
+   ```bash
+   cd flink-embedding-udf && mvn clean package
+   # copy target/flink-embedding-udf.jar to the Flink cluster classpath
+   ```
+2. Producer service using src/dataops_graphrag_mcp/ingestion/realtime_event_producer.py
+3. Flink SQL transform using resources/jobs/flink_realtime_hybrid_updates.sql
+4. Kafka Connect sinks:
    - resources/connectors/templates/vector_sink_databricks_jdbc.tmpl.json
    - resources/connectors/templates/graph_sink_neo4j.tmpl.json
+
+## Monitoring and Tracing
+
+1. Enable LangSmith tracing for the supervisor invocation path.
+2. Export logs and metrics to your central observability stack.
+3. Alert on error rate, latency, and dependency availability thresholds.
 
 ## Post-Deployment Validation
 

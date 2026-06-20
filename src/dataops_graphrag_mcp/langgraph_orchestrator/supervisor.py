@@ -1,16 +1,33 @@
 from dataops_graphrag_mcp.common.settings import settings
+from dataops_graphrag_mcp.common.langsmith import (
+    configure_langsmith,
+    is_langsmith_enabled,
+    langsmith_tags,
+)
 from dataops_graphrag_mcp.langgraph_orchestrator.graph import build_dataops_langgraph
+from langsmith import traceable
 
 
 class DataOpsLangGraphSupervisor:
     def __init__(self):
+        configure_langsmith()
         self.graph = build_dataops_langgraph()
 
+    @traceable(run_type="chain", name="dataops_langgraph_supervisor_invoke")
     def invoke(
         self, question: str, user_id: str | None = None, environment: str | None = None
     ) -> dict:
+        graph_config = {
+            "metadata": {
+                "app_env": settings.app_env,
+                "user_id": user_id,
+                "environment": environment,
+            },
+            "tags": langsmith_tags(environment),
+        }
         result = self.graph.invoke(
-            {"question": question, "user_id": user_id, "environment": environment}
+            {"question": question, "user_id": user_id, "environment": environment},
+            config=graph_config if is_langsmith_enabled() else None,
         )
         return {
             "answer": result.get("final_answer"),
