@@ -1,4 +1,0 @@
--------------------------------------------------------------------------------
-Test set: com.dataops.hybridrag.flink.EmbeddingUDFTest
--------------------------------------------------------------------------------
-Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.269 s -- in com.dataops.hybridrag.flink.EmbeddingUDFTest
