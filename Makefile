@@ -1,4 +1,4 @@
-.PHONY: install test run api bootstrap-vector bootstrap-graph realtime-producer streaming-up streaming-down streaming-topics connectors-render connectors-deploy
+.PHONY: install test run api bootstrap-vector bootstrap-graph realtime-producer streaming-up streaming-down streaming-topics connectors-render connectors-deploy neo4j-up neo4j-down neo4j-logs
 install:
 	pip install -e ".[dev]"
 test:
@@ -23,3 +23,9 @@ connectors-render:
 	python scripts/deploy_connectors.py
 connectors-deploy:
 	python scripts/deploy_connectors.py --register
+neo4j-up:
+	docker compose -f deploy/docker/docker-compose.neo4j.yml up -d
+neo4j-down:
+	docker compose -f deploy/docker/docker-compose.neo4j.yml down
+neo4j-logs:
+	docker compose -f deploy/docker/docker-compose.neo4j.yml logs -f neo4j
