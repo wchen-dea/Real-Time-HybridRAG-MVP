@@ -1,0 +1,312 @@
+name: PRD PR Stepwise Deploy
+
+on:
+  pull_request:
+    branches:
+      - prd
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  workflow_dispatch:
+
+concurrency:
+  group: prd-pr-stepwise-deploy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+env:
+  KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+  DATABRICKS_HOST_PROD: ${{ secrets.DATABRICKS_HOST_PROD }}
+  DATABRICKS_HOST_DEV: ${{ secrets.DATABRICKS_HOST_DEV }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+  KAFKA_CONNECT_URL: ${{ secrets.KAFKA_CONNECT_URL }}
+  DATABRICKS_SQL_HTTP_PATH: ${{ secrets.DATABRICKS_SQL_HTTP_PATH }}
+  PRD_BASE_URL: ${{ secrets.PRD_BASE_URL }}
+
+jobs:
+  validate-and-test:
+    name: 1) Validate & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Run tests
+        run: pytest -q
+
+  build-embedding-udf:
+    name: 2) Build Flink Embedding UDF
+    needs: validate-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build UDF JAR
+        run: mvn -f flink-embedding-udf/pom.xml -B clean package
+
+      - name: Upload UDF artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flink-embedding-udf-jar
+          path: flink-embedding-udf/target/flink-embedding-udf.jar
+          if-no-files-found: error
+
+  build-and-push-app-image:
+    name: 3) Build & Push App Image
+    needs: build-embedding-udf
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare image metadata
+        id: meta
+        shell: bash
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}/real-time-hybridrag-mvp:${{ github.sha }}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build image
+        run: docker build -f deploy/docker/Dockerfile -t "$IMAGE" .
+
+      - name: Push image
+        run: docker push "$IMAGE"
+
+  render-connectors:
+    name: 4) Render Connector Configs
+    needs: validate-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install minimal runtime deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml
+
+      - name: Render connector JSON
+        run: python scripts/deploy_connectors.py --output-dir resources/connectors/generated
+
+      - name: Upload connector artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: connector-configs
+          path: resources/connectors/generated/*.json
+          if-no-files-found: error
+
+  deploy-k8s:
+    name: 5) Deploy Kubernetes Manifests (step-by-step)
+    needs:
+      - build-and-push-app-image
+      - render-connectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check required K8s secret
+        id: k8s_guard
+        shell: bash
+        run: |
+          if [[ -z "$KUBE_CONFIG_DATA" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "KUBE_CONFIG_DATA is empty; skipping Kubernetes deploy steps."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.k8s_guard.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        if: steps.k8s_guard.outputs.enabled == 'true'
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        if: steps.k8s_guard.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.kube"
+          echo "$KUBE_CONFIG_DATA" | base64 -d > "$HOME/.kube/config"
+
+      - name: Inject image tag into deployment
+        if: steps.k8s_guard.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          IMAGE="${{ needs.build-and-push-app-image.outputs.image }}"
+          sed "s|<ECR_OR_NEXUS_REPO>/real-time-hybridrag-mvp:<TAG>|${IMAGE}|g" \
+            deploy/k8s/deployment.yaml > /tmp/deployment.rendered.yaml
+
+      - name: Apply namespace
+        if: steps.k8s_guard.outputs.enabled == 'true'
+        run: kubectl apply -f deploy/k8s/namespace.yaml
+
+      - name: Apply service account (IRSA)
+        if: steps.k8s_guard.outputs.enabled == 'true'
+        run: kubectl apply -f deploy/k8s/serviceaccount-irsa.yaml
+
+      - name: Apply configmap
+        if: steps.k8s_guard.outputs.enabled == 'true'
+        run: kubectl apply -f deploy/k8s/configmap.yaml
+
+      - name: Apply deployment
+        if: steps.k8s_guard.outputs.enabled == 'true'
+        run: kubectl apply -f /tmp/deployment.rendered.yaml
+
+      - name: Apply service
+        if: steps.k8s_guard.outputs.enabled == 'true'
+        run: kubectl apply -f deploy/k8s/service.yaml
+
+      - name: Wait for rollout
+        if: steps.k8s_guard.outputs.enabled == 'true'
+        run: kubectl -n hybridrag rollout status deployment/hybridrag-mcp --timeout=180s
+
+  deploy-databricks-bundle:
+    name: 6) Deploy Databricks Bundle
+    needs: deploy-k8s
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check required Databricks secrets
+        id: dbx_guard
+        shell: bash
+        run: |
+          if [[ -z "$DATABRICKS_HOST_PROD" || -z "$DATABRICKS_TOKEN" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Databricks credentials missing; skipping bundle deploy steps."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.dbx_guard.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Databricks CLI
+        if: steps.dbx_guard.outputs.enabled == 'true'
+        uses: databricks/setup-cli@main
+
+      - name: Validate bundle
+        if: steps.dbx_guard.outputs.enabled == 'true'
+        env:
+          DATABRICKS_HOST: ${{ env.DATABRICKS_HOST_PROD }}
+          DATABRICKS_TOKEN: ${{ env.DATABRICKS_TOKEN }}
+          BUNDLE_VAR_DATABRICKS_HOST_PROD: ${{ env.DATABRICKS_HOST_PROD }}
+          BUNDLE_VAR_DATABRICKS_HOST_DEV: ${{ env.DATABRICKS_HOST_DEV || env.DATABRICKS_HOST_PROD }}
+        run: databricks bundle validate -t prod
+
+      - name: Deploy bundle to prod target
+        if: steps.dbx_guard.outputs.enabled == 'true'
+        env:
+          DATABRICKS_HOST: ${{ env.DATABRICKS_HOST_PROD }}
+          DATABRICKS_TOKEN: ${{ env.DATABRICKS_TOKEN }}
+          BUNDLE_VAR_DATABRICKS_HOST_PROD: ${{ env.DATABRICKS_HOST_PROD }}
+          BUNDLE_VAR_DATABRICKS_HOST_DEV: ${{ env.DATABRICKS_HOST_DEV || env.DATABRICKS_HOST_PROD }}
+        run: databricks bundle deploy -t prod
+
+  register-connectors:
+    name: 7) Register Kafka Connectors
+    needs: deploy-k8s
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check required connector settings
+        id: connector_guard
+        shell: bash
+        run: |
+          if [[ -z "$KAFKA_CONNECT_URL" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "KAFKA_CONNECT_URL missing; skipping connector registration."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.connector_guard.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        if: steps.connector_guard.outputs.enabled == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Register connectors
+        if: steps.connector_guard.outputs.enabled == 'true'
+        env:
+          KAFKA_CONNECT_URL: ${{ env.KAFKA_CONNECT_URL }}
+          DATABRICKS_HOST: ${{ env.DATABRICKS_HOST_PROD }}
+          DATABRICKS_TOKEN: ${{ env.DATABRICKS_TOKEN }}
+          DATABRICKS_SQL_HTTP_PATH: ${{ env.DATABRICKS_SQL_HTTP_PATH }}
+          AI_SEARCH_SOURCE_TABLE: ai_context.document_chunks
+          KAFKA_ENRICHED_VECTOR_TOPIC: hybridrag.enriched.vector
+          KAFKA_ENRICHED_GRAPH_TOPIC: hybridrag.enriched.graph
+        run: python scripts/deploy_connectors.py --register
+
+  smoke-test:
+    name: 8) Smoke Test Service
+    needs:
+      - deploy-k8s
+      - deploy-databricks-bundle
+      - register-connectors
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Health check
+        if: needs.deploy-k8s.result == 'success' && env.PRD_BASE_URL != ''
+        run: curl -fsS "$PRD_BASE_URL/health"
+
+      - name: Ask endpoint smoke test
+        if: needs.deploy-k8s.result == 'success' && env.PRD_BASE_URL != ''
+        run: |
+          curl -fsS -X POST "$PRD_BASE_URL/ask" \
+            -H "Content-Type: application/json" \
+            -d '{"question":"Find the runbook for Kafka lag.","environment":"prd"}'
