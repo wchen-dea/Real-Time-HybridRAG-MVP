@@ -215,6 +215,30 @@ See docs/deployment.md for deployment sequence.
 - Restrict egress to Databricks, model provider, and graph backend endpoints.
 - Use workload-level health checks and rolling updates.
 
+## Component Architecture Matrix
+
+| Component | File(s) | Pattern | Responsibility |
+|---|---|---|---|
+| `DataOpsLangGraphSupervisor` | `src/dataops_graphrag_mcp/langgraph_orchestrator/supervisor.py` | Facade + Cache-aside (TTL 5 min) | Single entry point for all callers; owns TTL cache and LangSmith trace decoration |
+| `build_dataops_langgraph` | `src/dataops_graphrag_mcp/langgraph_orchestrator/graph.py` | State machine / Workflow graph | Compiles nodes + conditional edges into an executable LangGraph `StateGraph` |
+| `DataOpsAgentState` | `src/dataops_graphrag_mcp/langgraph_orchestrator/state.py` | Typed state container (`TypedDict`) | Immutable-by-convention shared context passed between all graph nodes |
+| `route_after_*` edge functions | `src/dataops_graphrag_mcp/langgraph_orchestrator/edges.py` | Strategy / Conditional routing | Inspect state to select the next node; all branching logic isolated here |
+| `QueryRouter` | `src/dataops_graphrag_mcp/hybrid/query_router.py` | Strategy (keyword-rule dispatch) | Classify question → `vector / graph / hybrid / sql` retrieval mode |
+| LangGraph nodes (`*_node`) | `src/dataops_graphrag_mcp/langgraph_orchestrator/nodes.py` | Pipeline step + Graceful degradation | Execute one retrieval or reasoning step; catch exceptions and return safe partial state |
+| `EvidenceMerger` | `src/dataops_graphrag_mcp/hybrid/evidence_merger.py` | Aggregator | Normalize and merge vector chunks + graph triples into a unified evidence list |
+| `VectorRetriever` / `DatabricksVectorRetriever` | `src/dataops_graphrag_mcp/vectorrag/vector_retriever.py`, `databricks_vector_retriever.py` | Adapter | Normalize Databricks AI Search responses into `VectorSearchResult` contracts |
+| `DatabricksAISearchVectorStore` | `src/dataops_graphrag_mcp/vectorrag/databricks_ai_search.py` | Adapter (external SDK wrapper) | Wrap `AISearchClient` SDK calls; manage endpoint and index lifecycle |
+| `GraphRetriever` | `src/dataops_graphrag_mcp/graphrag/graph_retriever.py` | Adapter | Execute Cypher queries against Neo4j; map results to graph triple objects |
+| `get_chat_model()` | `src/dataops_graphrag_mcp/llm/provider.py` | Factory | Provider-string → concrete `ChatAnthropic` instance; single extension point for new LLMs |
+| `EvidenceItem`, `GraphPathItem` | `src/dataops_graphrag_mcp/hybrid/response_contract.py` | Value object (Pydantic) | Validated, serializable data contracts for evidence and graph path items |
+| `Settings` | `src/dataops_graphrag_mcp/common/settings.py` | Configuration object (Pydantic Settings) | Centralize all env-var config with typed fields and `.env` file support |
+| `DataOpsMcpServer` | `src/dataops_graphrag_mcp/mcp_server/server.py` | Facade | Expose supervisor as a named MCP tool registry; decouple tool callers from orchestration |
+| `dataops_agent_tool` | `src/dataops_graphrag_mcp/mcp_server/tools_langgraph.py` | Facade (thin function shim) | Bridge MCP protocol calls to `DataOpsLangGraphSupervisor.invoke` |
+| FastAPI app + `_attach_correlation_id` | `src/dataops_graphrag_mcp/app/api.py` | Middleware / Decorator | Attach `X-Correlation-ID` to every request/response; enforce per-IP rate limit |
+| `check_input` | `src/dataops_graphrag_mcp/llm/guardrails.py` | Chain of responsibility | Hard-keyword block → LLM-based classification → default-allow fallback, in order |
+| Flink embedding UDF | `flink-embedding-udf/` | Streaming UDF (plugin) | Java 17 scalar UDF called from Flink SQL to generate `ARRAY<FLOAT>` embeddings at stream time |
+| Kafka Connect sink templates | `resources/connectors/templates/` | Sink connector (event-driven pipeline) | Route enriched vector/graph events from Kafka into Databricks Delta and Neo4j |
+
 ## Related Docs
 
 - README.md
